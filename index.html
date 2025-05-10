@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>2025 Attendance Calendar</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    .controls {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    select, button {
+      padding: 5px 10px;
+      margin: 5px;
+      font-size: 14px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .day {
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 14px;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .full { background-color: white; }
+    .half { background-color: #fff3cd; }
+    .absent { background-color: #f8d7da; color: darkred; }
+    button {
+      cursor: pointer;
+    }
+    @media (max-width: 600px) {
+      .calendar {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .summary {
+      margin-top: 20px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>2025 Attendance Calendar</h1>
+  <div class="controls">
+    <label for="monthSelect">Month:</label>
+    <select id="monthSelect"></select>
+    <button onclick="exportCSV()">📤 Export CSV</button>
+    <button onclick="resetAttendance()">🗑️ Reset Attendance</button>
+  </div>
+  <div id="calendarContainer"></div>
+  <div class="summary" id="summaryBox"></div>
+
+  <script>
+    const officeStart = "09:30";
+    const officeEnd = "18:00";
+    const year = 2025;
+    const attendanceData = JSON.parse(localStorage.getItem("calendarAttendance2025") || "{}");
+
+    function formatDate(date) {
+      return date.toISOString().split('T')[0];
+    }
+
+    function getTodayDateStr() {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      return formatDate(now);
+    }
+
+    function getTime() {
+      return new Date().toTimeString().slice(0, 5);
+    }
+
+    function createMonthOptions() {
+      const monthSelect = document.getElementById("monthSelect");
+      for (let i = 0; i < 12; i++) {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = new Date(year, i).toLocaleString('default', { month: 'long' });
+        monthSelect.appendChild(opt);
+      }
+      monthSelect.value = new Date().getMonth();
+      monthSelect.onchange = () => createCalendar(parseInt(monthSelect.value));
+    }
+
+    function createCalendar(month) {
+      const container = document.getElementById("calendarContainer");
+      const summaryBox = document.getElementById("summaryBox");
+      container.innerHTML = "";
+      summaryBox.innerHTML = "";
+      const grid = document.createElement("div");
+      grid.className = "calendar";
+
+      const firstDay = new Date(year, month, 1);
+      const lastDate = new Date(year, month + 1, 0).getDate();
+      let full = 0, half = 0, absent = 0;
+
+      const todayStr = getTodayDateStr();
+
+      for (let i = 0; i < firstDay.getDay(); i++) {
+        const empty = document.createElement("div");
+        grid.appendChild(empty);
+      }
+
+      for (let day = 1; day <= lastDate; day++) {
+        const date = new Date(year, month, day);
+        const dateStr = formatDate(date);
+        const isToday = dateStr === todayStr;
+
+        if (!attendanceData[dateStr]) {
+          attendanceData[dateStr] = { status: "Absent" };
+        }
+        const entry = attendanceData[dateStr];
+        const statusClass = entry.status === "Full Day" ? "full" :
+                            entry.status === "Half Day" ? "half" :
+                            "absent";
+
+        if (entry.status === "Full Day") full++;
+        else if (entry.status === "Half Day") half++;
+        else absent++;
+
+        const div = document.createElement("div");
+        div.className = `day ${statusClass}`;
+        div.innerHTML = ` 
+          <strong>${day}</strong>
+          <small>${date.toLocaleString('default', { weekday: 'short' })}</small>
+          <div>${entry.status}</div>
+          <div>Check In: ${entry.checkIn || 'N/A'}</div>
+          <div>Check Out: ${entry.checkOut || 'N/A'}</div>
+          ${entry.status === 'Absent' && !entry.checkIn ? `
+            <select onchange="updateReason('${dateStr}', this.value)">
+              <option value="">-- Reason --</option>
+              <option value="Festival">Festival</option>
+              <option value="Personal">Personal</option>
+              <option value="Other">Other</option>
+            </select>
+            <div>${entry.reason || ''}</div>
+          ` : ''}
+          <button onclick="checkIn('${dateStr}')" ${!isToday || entry.checkIn ? 'disabled' : ''}>Check In</button>
+          <button onclick="checkOut('${dateStr}')" ${!isToday || !entry.checkIn || entry.checkOut ? 'disabled' : ''}>Check Out</button>
+        `;
+        grid.appendChild(div);
+      }
+      container.appendChild(grid);
+      summaryBox.innerHTML = `
+        <h3>Monthly Summary</h3>
+        <p>✅ Full Days: ${full}</p>
+        <p>🟡 Half Days: ${half}</p>
+        <p>🔴 Absents: ${absent}</p>
+      `;
+    }
+
+    function checkIn(dateStr) {
+      if (!attendanceData[dateStr]) attendanceData[dateStr] = {};
+      attendanceData[dateStr].checkIn = getTime();
+      attendanceData[dateStr].status = "Absent"; // temporary
+      attendanceData[dateStr].reason = "";
+      localStorage.setItem("calendarAttendance2025", JSON.stringify(attendanceData));
+      createCalendar(parseInt(document.getElementById("monthSelect").value));
+    }
+
+    function checkOut(dateStr) {
+      const entry = attendanceData[dateStr];
+      if (!entry || !entry.checkIn) return;
+      entry.checkOut = getTime();
+
+      const [inHour, inMin] = entry.checkIn.split(":").map(Number);
+      const [outHour, outMin] = entry.checkOut.split(":").map(Number);
+      const totalInMinutes = inHour * 60 + inMin;
+      const totalOutMinutes = outHour * 60 + outMin;
+      const duration = totalOutMinutes - totalInMinutes;
+
+      if (duration >= 450) {
+        entry.status = "Full Day";
+      } else if (duration >= 240) {
+        entry.status = "Half Day";
+      } else {
+        entry.status = "Absent";
+      }
+
+      localStorage.setItem("calendarAttendance2025", JSON.stringify(attendanceData));
+      createCalendar(parseInt(document.getElementById("monthSelect").value));
+    }
+
+    function updateReason(dateStr, reason) {
+      if (!attendanceData[dateStr]) return;
+      attendanceData[dateStr].reason = reason;
+      localStorage.setItem("calendarAttendance2025", JSON.stringify(attendanceData));
+      createCalendar(parseInt(document.getElementById("monthSelect").value));
+    }
+
+    function exportCSV() {
+      const csvRows = [["Date", "Day", "Check In", "Check Out", "Status", "Reason"]];
+      for (const [date, entry] of Object.entries(attendanceData)) {
+        const dayName = new Date(date).toLocaleString('default', { weekday: 'short' });
+        csvRows.push([date, dayName, entry.checkIn || "", entry.checkOut || "", entry.status || "Absent", entry.reason || ""]);
+      }
+      const csvContent = csvRows.map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', 'Attendance_2025.csv');
+      a.click();
+    }
+
+    function resetAttendance() {
+      if (confirm("Are you sure you want to clear all attendance data?")) {
+        localStorage.removeItem("calendarAttendance2025");
+        location.reload();
+      }
+    }
+
+    createMonthOptions();
+    createCalendar(new Date().getMonth());
+  </script>
+</body>
+</html>
